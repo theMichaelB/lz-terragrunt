@@ -1,0 +1,33 @@
+pool:
+  vmImage: ubuntu-latest
+variables:
+  - group: Terragrunt-Group
+  - group: Azure-Credentials-Test
+stages:
+
+- stage: Init
+  jobs:
+  - job: InitRemoteState
+    steps:    
+    - script: |
+        chmod +x ./scripts/terraform-init-remote-state.sh
+      displayName: 'Enable script permissions'
+
+    - task: Bash@3
+      inputs:
+        filePath: './scripts/terraform-init-remote-state.sh'
+      env: 
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+      displayName: 'Init remote state'
+
+- stage: Plan
+  dependsOn: Init
+  jobs:
+  - job: Plan
+    steps:
+    - template: download-terragrunt.yaml
+
+    - script: terragrunt run-all validate --terragrunt-working-dir terragrunt/deploy/hello_world
+      displayName: 'Run terragrunt validate-all'
+
+      #terragrunt/deploy/hello_world

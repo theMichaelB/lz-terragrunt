@@ -1,0 +1,3 @@
+output "stack" {
+  value = "stack"
+}

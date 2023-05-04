@@ -1,0 +1,13 @@
+locals {
+  location           = "${AZURE_LOCATION}"
+  secondary_location = "${AZURE_SECONDARY_LOCATION}"
+  domain_name        = "${DOMAIN_NAME}"
+  global_tags = {
+    DeployMethod = "terraform-via-terragrunt"
+  }
+  corp_core_subscription = {
+    name            = "${CORP_SUBSCRIPTION_NAME}"
+    display_name    = "${CORP_SUBSCRIPTION_NAME}"
+    subscription_id = "${CORP_SUBSCRIPTION_ID}"
+  }
+}

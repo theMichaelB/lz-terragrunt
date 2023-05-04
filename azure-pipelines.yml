@@ -1,0 +1,163 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- master
+
+parameters:
+- name: Deployments
+  type: string
+  default: "terragrunt/deploy/hello_world"
+  values:
+  - terragrunt/deploy/hello_world
+  - terragrunt/deploy/hello_world2
+
+
+  
+pool:
+  vmImage: ubuntu-latest
+variables:
+  - group: Terragrunt-Group
+  - group: Azure-Credentials-Test
+  - group: TF_State_storage
+  - group: Azure-Variables
+
+stages:
+
+
+- stage: Init
+  jobs:
+  - job: InitRemoteState
+    steps:    
+    - script: |
+          chmod +x ./scripts/terraform-init-remote-state.sh
+          chmod +x ./scripts/run-repo-customisation.sh
+          chmod +x ./scripts/terragrunt-initialise.sh
+      displayName: 'Enable script permissions'
+
+    - task: Bash@3
+      inputs:
+        filePath: './scripts/run-repo-customisation.sh'
+      env: 
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+      displayName: 'Run repo customisation'
+
+    - task: Bash@3
+      inputs:
+        filePath: './scripts/terraform-init-remote-state.sh'
+      env: 
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+      displayName: 'Init remote state'
+
+    - task: Bash@3
+      inputs:
+          filePath: './scripts/terragrunt-initialise.sh'
+      env: 
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+      displayName: 'Run terragrunt customisation'
+
+    - task: CopyFiles@2
+      displayName: 'Copy scripts'
+      inputs:
+        contents: 'artifacts/**'
+        targetFolder: '$(Build.ArtifactStagingDirectory)'
+
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish'
+      inputs:
+        artifactName: 'terragrunt'
+        targetPath: '$(Build.ArtifactStagingDirectory)/artifacts'
+        artifactType: 'pipeline'
+
+
+- stage: Plan
+  dependsOn: Init
+  jobs:
+  - job: Plan
+    steps:
+    - template: download-terragrunt.yaml
+
+    - task: Bash@3
+      inputs:
+        filePath: './scripts/azure-login.sh'
+      env: 
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+      displayName: 'azure-login'
+
+      
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        buildType: 'current'
+        targetPath: ./terragrunt
+        itemPattern: '**/*'
+
+    - script: |
+        mv terragrunt/terragrunt/* terragrunt/
+        find terragrunt/
+        terragrunt run-all validate  --terragrunt-working-dir ${{ parameters.Deployments }}
+      displayName: 'Run terragrunt run-all validate'
+      env: 
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+
+    - script: chmod +x ./scripts/terragrunt-plan.sh
+      displayName: 'Enable script permissions'
+
+    - task: Bash@3
+      inputs:
+        filePath: './scripts/terragrunt-plan.sh'
+        arguments: 'plan.log'
+      env:
+        TERRAGRUNT_PATH: ${{ parameters.Deployments }}
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+      displayName: 'Run terragrunt plan-all'
+  
+
+- stage: Apply
+  dependsOn: Plan
+  jobs:
+  - job: Plan
+    steps:
+    - checkout: self
+
+    - template: download-terragrunt.yaml
+
+    - task: Bash@3
+      inputs:
+        filePath: './scripts/azure-login.sh'
+      env: 
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+      displayName: 'azure-login'
+
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        buildType: 'current'
+        targetPath: ./terragrunt
+        itemPattern: '**/*'
+
+    - script: |
+        chmod +x ./scripts/terragrunt-apply.sh
+        mv terragrunt/terragrunt/* terragrunt/
+      displayName: 'Enable script permissions'
+
+    - task: Bash@3
+      inputs:
+        filePath: './scripts/terragrunt-apply.sh'
+        arguments: 'apply.log'
+      displayName: 'Run terragrunt apply-all'
+      env:
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        TERRAGRUNT_PATH: ${{ parameters.Deployments }}
+    
+    - task: CopyFiles@2
+      inputs:
+        contents: 'apply.log'
+        targetFolder: $(Build.ArtifactStagingDirectory)
+      displayName: 'Copy apply output to artifact staging directory'
+
+    - task: PublishPipelineArtifact@0
+      inputs:
+        targetPath: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'Apply'
+      displayName: 'Publish apply artifact'
